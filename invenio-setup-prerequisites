@@ -157,7 +157,6 @@ debian_install_packages () {
     cd $olddir
 }
 
-
 ubuntu1404_install_packages () {
     # install system packages
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -229,6 +228,10 @@ debian_configure_mysql () {
     echo "DROP DATABASE IF EXISTS $CFG_INVENIO_DATABASE_NAME;" | mysql -u root -B
     echo "CREATE DATABASE $CFG_INVENIO_DATABASE_NAME DEFAULT CHARACTER SET utf8;" | mysql -u root -B
     echo "GRANT ALL PRIVILEGES ON $CFG_INVENIO_DATABASE_NAME.* TO $CFG_INVENIO_DATABASE_USER@localhost IDENTIFIED BY '$CFG_INVENIO_DATABASE_PASS'" | mysql -u root -B
+}
+
+ubuntu1404_configure_mysql () {
+    debian_configure_mysql
 }
 
 freebsd_configure_mysql () {
@@ -336,6 +339,42 @@ debian_configure_apache () {
     sudo /etc/init.d/apache2 restart
 }
 
+ubuntu1404_configure_apache () {
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ssl-cert
+    sudo mkdir -p /etc/apache2/ssl
+    if [ ! -e /etc/apache2/ssl/apache.pem ]; then
+        sudo DEBIAN_FRONTEND=noninteractive /usr/sbin/make-ssl-cert \
+            /usr/share/ssl-cert/ssleay.cnf /etc/apache2/ssl/apache.pem
+    fi
+    if [ ! -L /etc/apache2/sites-available/invenio ]; then
+        sudo ln -fs /opt/invenio/etc/apache/invenio-apache-vhost.conf \
+            /etc/apache2/sites-available/invenio.conf
+    fi
+    if [ ! -e /opt/invenio/etc/apache/invenio-apache-vhost.conf ]; then
+        # create them empty for the time being so that apache would start
+        sudo mkdir -p /opt/invenio/etc/apache/
+        sudo touch /opt/invenio/etc/apache/invenio-apache-vhost.conf
+        sudo chown -R www-data.www-data /opt/invenio
+    fi
+    if [ ! -L /etc/apache2/sites-available/invenio-ssl ]; then
+        sudo ln -fs /opt/invenio/etc/apache/invenio-apache-vhost-ssl.conf \
+            /etc/apache2/sites-available/invenio-ssl.conf
+    fi
+    if [ ! -e /opt/invenio/etc/apache/invenio-apache-vhost-ssl.conf ]; then
+        # create them empty for the time being so that apache would start
+        sudo mkdir -p /opt/invenio/etc/apache/
+        sudo touch /opt/invenio/etc/apache/invenio-apache-vhost-ssl.conf
+        sudo chown -R www-data.www-data /opt/invenio
+    fi
+
+    sudo /usr/sbin/a2dissite 000-default
+    sudo /usr/sbin/a2ensite invenio
+    sudo /usr/sbin/a2ensite invenio-ssl
+    sudo /usr/sbin/a2enmod ssl
+    sudo /usr/sbin/a2enmod xsendfile
+    sudo /etc/init.d/apache2 restart
+}
+
 freebsd_configure_apache () {
     # enable apache right after restarts:
     echo "apache22_enable=\"YES\"" | sudo tee -a /etc/rc.conf
@@ -412,9 +451,15 @@ main () {
         redhat_configure_selinux
         redhat_configure_iptables
     elif [ -e /etc/debian_version ]; then
-        debian_install_packages
-        debian_configure_mysql
-        debian_configure_apache
+        if [ -e /etc/os-release ] && grep -q "Ubuntu 14.04 " /etc/os-release; then
+            ubuntu1404_install_packages
+            ubuntu1404_configure_mysql
+            ubuntu1404_configure_apache
+        else
+            debian_install_packages
+            debian_configure_mysql
+            debian_configure_apache
+        fi
     elif [ $(uname -s) = "FreeBSD" ]; then
         freebsd_install_packages
         freebsd_configure_mysql
